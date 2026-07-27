@@ -95,11 +95,11 @@
     z-index:5;
   }
 
-  /* grain canvas - boosted contrast & intensity */
+  /* grain canvas */
   canvas#grain{
     position:absolute; inset:0; width:100%; height:100%;
-    mix-blend-mode:screen;
-    opacity:0.75;
+    mix-blend-mode:overlay;
+    opacity:0.55;
     pointer-events:none;
     z-index:6;
   }
@@ -108,7 +108,7 @@
   canvas#scratches{
     position:absolute; inset:0; width:100%; height:100%;
     pointer-events:none;
-    opacity:0.6;
+    opacity:0.5;
     mix-blend-mode:screen;
     z-index:7;
   }
@@ -120,6 +120,35 @@
     pointer-events:none;
     z-index:12;
   }
+
+  #startBtn{
+    position:absolute; z-index:20;
+    bottom:6vh; left:50%; transform:translateX(-50%);
+    background:transparent;
+    border:1px solid rgba(255,255,255,0.35);
+    color:rgba(240,240,235,0.85);
+    font-family:'Oswald', sans-serif;
+    font-weight:400;
+    letter-spacing:0.3em;
+    text-transform:lowercase;
+    font-size:13px;
+    padding:12px 26px;
+    cursor:pointer;
+    transition:all 0.3s ease;
+  }
+  #startBtn:hover{
+    background:rgba(255,255,255,0.08);
+    border-color:rgba(255,255,255,0.6);
+  }
+  #startBtn.hidden{
+    opacity:0; pointer-events:none;
+  }
+  #soundNote{
+    position:absolute; z-index:20; bottom:2.2vh; left:50%; transform:translateX(-50%);
+    color:rgba(255,255,255,0.3); font-size:10px; letter-spacing:0.15em;
+    font-family:'Oswald', sans-serif; text-transform:lowercase;
+  }
+  #soundNote.hidden{ opacity:0; }
 </style>
 </head>
 <body>
@@ -140,6 +169,8 @@
   <canvas id="grain"></canvas>
   <canvas id="scratches"></canvas>
   <div id="finalFade"></div>
+  <button id="startBtn">begin</button>
+  <div id="soundNote">for the full effect, use sound</div>
 </div>
 
 <script>
@@ -150,6 +181,8 @@
   const ring = document.getElementById('ringProgress');
   const countdownWrap = document.getElementById('countdownWrap');
   const logoText = document.getElementById('logoText');
+  const startBtn = document.getElementById('startBtn');
+  const soundNote = document.getElementById('soundNote');
   const grainCanvas = document.getElementById('grain');
   const scratchCanvas = document.getElementById('scratches');
   const finalFade = document.getElementById('finalFade');
@@ -187,102 +220,91 @@
   resize();
   window.addEventListener('resize', resize);
 
-  // ---------- Heavy Film Grain ----------
+  // ---------- Grain ----------
   function drawGrain(intensity){
     const w = grainCanvas.width, h = grainCanvas.height;
-    if (!w || !h) return;
     const imgData = gctx.createImageData(w, h);
     const buf = imgData.data;
+    // sparse noise for performance: fill in blocks
     for(let i=0;i<buf.length;i+=4){
-      const grainVal = (Math.random() * 255 * intensity) | 0;
-      const alpha = (Math.random() * 90 * intensity) | 0;
-      buf[i] = grainVal; 
-      buf[i+1] = grainVal; 
-      buf[i+2] = grainVal; 
-      buf[i+3] = alpha;
+      const v = (Math.random()*255*intensity)|0;
+      buf[i] = v; buf[i+1]=v; buf[i+2]=v; buf[i+3]= Math.random()*40*intensity;
     }
     gctx.putImageData(imgData,0,0);
   }
 
   // ---------- Scratches & dust ----------
+  let scratchState = [];
   function updateScratches(intensity){
     sctx.clearRect(0,0,scratchCanvas.width, scratchCanvas.height);
-    if(Math.random() < 0.45 * intensity){
+    if(Math.random() < 0.35 * intensity){
       const w = scratchCanvas.width, h = scratchCanvas.height;
       const x = Math.random()*w;
-      sctx.strokeStyle = `rgba(255,255,255,${0.12 + Math.random()*0.25*intensity})`;
-      sctx.lineWidth = 0.8 + Math.random()*1.4;
+      sctx.strokeStyle = `rgba(255,255,255,${0.08 + Math.random()*0.18*intensity})`;
+      sctx.lineWidth = 0.6 + Math.random()*1.2;
       sctx.beginPath();
       sctx.moveTo(x + (Math.random()-0.5)*20, 0);
       sctx.lineTo(x + (Math.random()-0.5)*20, h);
       sctx.stroke();
     }
     // dust specks
-    const specks = Math.floor(Math.random()*10*intensity);
+    const specks = Math.floor(Math.random()*6*intensity);
     for(let i=0;i<specks;i++){
-      sctx.fillStyle = `rgba(255,255,255,${0.2+Math.random()*0.4})`;
-      const r = Math.random()*2.0+0.4;
+      sctx.fillStyle = `rgba(255,255,255,${0.15+Math.random()*0.3})`;
+      const r = Math.random()*1.6+0.3;
       sctx.beginPath();
       sctx.arc(Math.random()*scratchCanvas.width, Math.random()*scratchCanvas.height, r, 0, Math.PI*2);
       sctx.fill();
     }
   }
 
-  // ---------- Audio (synthesized) ----------
+  // ---------- Audio (synthesized, no external samples) ----------
   let audioCtx, master, humGain, humFilter, humSource, flutterLFO;
   function initAudio(){
-    if (audioCtx) return;
-    try {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      master = audioCtx.createGain();
-      master.gain.value = 1.0;
-      master.connect(audioCtx.destination);
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    master = audioCtx.createGain();
+    master.gain.value = 0.0;
+    master.connect(audioCtx.destination);
 
-      const bufSize = audioCtx.sampleRate * 2;
-      const buffer = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
-      const data = buffer.getChannelData(0);
-      let last = 0;
-      for(let i=0;i<bufSize;i++){
-        const white = Math.random()*2-1;
-        last = (last + 0.02*white) / 1.02;
-        data[i] = last * 3.2;
-      }
-      humSource = audioCtx.createBufferSource();
-      humSource.buffer = buffer;
-      humSource.loop = true;
-
-      humFilter = audioCtx.createBiquadFilter();
-      humFilter.type = 'bandpass';
-      humFilter.frequency.value = 140;
-      humFilter.Q.value = 0.7;
-
-      humGain = audioCtx.createGain();
-      humGain.gain.value = 0.0;
-
-      flutterLFO = audioCtx.createOscillator();
-      flutterLFO.frequency.value = 5.5;
-      const flutterDepth = audioCtx.createGain();
-      flutterDepth.gain.value = 0.04;
-      flutterLFO.connect(flutterDepth);
-      flutterDepth.connect(humGain.gain);
-
-      humSource.connect(humFilter);
-      humFilter.connect(humGain);
-      humGain.connect(master);
-
-      humSource.start();
-      flutterLFO.start();
-
-      const now = audioCtx.currentTime;
-      humGain.gain.setValueAtTime(0.0, now);
-      humGain.gain.linearRampToValueAtTime(0.5, now + PRE_SILENCE_MS/1000 + 0.3);
-    } catch(e) {
-      console.warn('Audio autoplay blocked or unsupported.');
+    // brown-ish noise buffer for projector hum
+    const bufSize = audioCtx.sampleRate * 2;
+    const buffer = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    let last = 0;
+    for(let i=0;i<bufSize;i++){
+      const white = Math.random()*2-1;
+      last = (last + 0.02*white) / 1.02;
+      data[i] = last * 3.2;
     }
+    humSource = audioCtx.createBufferSource();
+    humSource.buffer = buffer;
+    humSource.loop = true;
+
+    humFilter = audioCtx.createBiquadFilter();
+    humFilter.type = 'bandpass';
+    humFilter.frequency.value = 140;
+    humFilter.Q.value = 0.7;
+
+    humGain = audioCtx.createGain();
+    humGain.gain.value = 0.0;
+
+    // flutter: subtle amplitude modulation
+    flutterLFO = audioCtx.createOscillator();
+    flutterLFO.frequency.value = 5.5;
+    const flutterDepth = audioCtx.createGain();
+    flutterDepth.gain.value = 0.04;
+    flutterLFO.connect(flutterDepth);
+    flutterDepth.connect(humGain.gain);
+
+    humSource.connect(humFilter);
+    humFilter.connect(humGain);
+    humGain.connect(master);
+
+    humSource.start();
+    flutterLFO.start();
   }
 
   function click(time, hardness){
-    if (!audioCtx) return;
     const dur = 0.045;
     const bufSize = Math.floor(audioCtx.sampleRate*dur);
     const buffer = audioCtx.createBuffer(1, bufSize, audioCtx.sampleRate);
@@ -303,7 +325,7 @@
   }
 
   function breathResolve(time){
-    if (!audioCtx) return;
+    // a quiet, warm swell — not a hit
     const osc = audioCtx.createOscillator();
     osc.type = 'sine';
     osc.frequency.setValueAtTime(120, time);
@@ -319,15 +341,15 @@
 
   // ---------- Animation timeline ----------
   const COUNT_START = 8;
-  const STEP_MS = 780;
-  const TOTAL_COUNT_MS = COUNT_START * STEP_MS;
+  const STEP_MS = 780;              // duration each number is on screen
+  const TOTAL_COUNT_MS = COUNT_START * STEP_MS; // continuous progress span
   const PRE_SILENCE_MS = 650;
   const POST_COUNT_PAUSE_MS = 550;
   const SETTLE_MS = 900;
-  const TEXT_FADE_DELAY_MS = 1000;
-  const TEXT_FADE_MS = 1900;
-  const FINAL_HOLD_MS = 2600;
-  const FINAL_FADE_MS = 1800;
+  const TEXT_FADE_DELAY_MS = 1000;  // a full second of black silence before it emerges
+  const TEXT_FADE_MS = 1900;        // darkroom-style emergence, ~1.5-2s
+  const FINAL_HOLD_MS = 2600;       // hold on the fully-resolved logo
+  const FINAL_FADE_MS = 1800;       // fade the whole frame to black
 
   let startTime = null;
   let lastGrainDraw = 0;
@@ -342,6 +364,7 @@
     if(startTime===null) startTime = ts;
     const t = ts - startTime;
 
+    // --- Phase timings ---
     const countdownStart = PRE_SILENCE_MS;
     const countdownEnd = countdownStart + TOTAL_COUNT_MS;
     const resolveAt = countdownEnd + POST_COUNT_PAUSE_MS;
@@ -349,31 +372,37 @@
     const textStart = settleEnd + TEXT_FADE_DELAY_MS;
     const textEnd = textStart + TEXT_FADE_MS;
     const finalFadeStart = textEnd + FINAL_HOLD_MS;
+    const finalFadeEnd = finalFadeStart + FINAL_FADE_MS;
 
+    // --- intensity of "projected film" artifacts (weave/flicker/grain/scratches) ---
     let artifactIntensity;
     if(t < countdownEnd){
-      artifactIntensity = 1.2;
+      artifactIntensity = 1.0;
     } else if(t < settleEnd){
       const p = (t-countdownEnd) / (settleEnd-countdownEnd);
-      artifactIntensity = 1.2 - easeInOutCubic(Math.min(p,1)) * 0.9;
+      artifactIntensity = 1.0 - easeInOutCubic(Math.min(p,1));
     } else {
-      artifactIntensity = 0.3;
+      artifactIntensity = 0.12; // subtle residual grain forever
     }
 
-    const weaveAmt = 2.0 * artifactIntensity;
+    // frame weave (subtle random translate) + flicker (brightness)
+    const weaveAmt = 1.6 * artifactIntensity;
     const dx = (Math.random()-0.5) * weaveAmt;
     const dy = (Math.random()-0.5) * weaveAmt;
-    const flicker = 1 + (Math.random()-0.5) * 0.08 * artifactIntensity;
+    const flicker = 1 + (Math.random()-0.5) * 0.05 * artifactIntensity;
     frame.style.transform = `translate(${dx}px, ${dy}px)`;
     frame.style.filter = `brightness(${flicker})`;
 
-    if(ts - lastGrainDraw > 33){
-      drawGrain(0.6 + 0.6*artifactIntensity);
+    // grain + scratches
+    if(ts - lastGrainDraw > 33){ // ~30fps for grain, cheaper
+      drawGrain(0.35 + 0.65*artifactIntensity);
       updateScratches(artifactIntensity);
       lastGrainDraw = ts;
     }
 
+    // --- Countdown ring + digit ---
     if(t < countdownStart){
+      // black silence — nothing visible yet
       countdownWrap.style.opacity = '0';
     } else if(t < countdownEnd){
       countdownWrap.style.opacity = '1';
@@ -391,27 +420,31 @@
         }
       }
     } else if(t < resolveAt){
+      // circle fully closed, digit still visible briefly, ring fully closed (offset 0)
       ring.setAttribute('stroke-dashoffset', '0');
       digitEl.textContent = '1';
       if(!clicksScheduled && audioCtx){
         clicksScheduled = true;
-        breathResolve(audioCtx.currentTime);
+        breathResolve(audioCtx.currentTime + (resolveAt-t)/1000 * 0);
       }
     } else if (t < settleEnd) {
+      // fade out the countdown ring/digit as image steadies
       const p = (t-resolveAt)/(settleEnd-resolveAt);
       countdownWrap.style.opacity = String(1-easeInOutCubic(Math.min(p,1)));
     } else {
       countdownWrap.style.opacity = '0';
     }
 
+    // --- Logo text reveal: like a print resolving in a developer tray ---
     if(t >= textStart){
       const pRaw = Math.min(1, (t-textStart)/TEXT_FADE_MS);
-      const pOpacity = Math.pow(pRaw, 1.7);
+      const pOpacity = Math.pow(pRaw, 1.7);       // imperceptible start, then blooms
       const pBlur = easeInOutCubic(pRaw);
       logoText.style.opacity = String(pOpacity);
       logoText.style.filter = `blur(${((1-pBlur)*4.5).toFixed(2)}px)`;
     }
 
+    // --- Final hold, then fade the whole frame to black ---
     if(t >= finalFadeStart){
       const p = easeInOutCubic(Math.min(1, (t-finalFadeStart)/FINAL_FADE_MS));
       finalFade.style.opacity = String(p);
@@ -427,20 +460,21 @@
     requestAnimationFrame(frameLoop);
   }
 
-  // --- Auto-start triggers ---
-  window.addEventListener('DOMContentLoaded', () => {
-    initAudio();
-    requestAnimationFrame(frameLoop);
-  });
-
-  // Fallback user click listener to resume AudioContext if browser blocks audio autoplay
-  window.addEventListener('click', () => {
-    if (!audioCtx) {
+  startBtn.addEventListener('click', function(){
+    startBtn.classList.add('hidden');
+    soundNote.classList.add('hidden');
+    try{
       initAudio();
-    } else if (audioCtx.state === 'suspended') {
-      audioCtx.resume();
+      if(audioCtx.state === 'suspended') audioCtx.resume();
+      // fade hum in gently, like a motor reaching speed
+      const now = audioCtx.currentTime;
+      humGain.gain.setValueAtTime(0.0, now);
+      humGain.gain.linearRampToValueAtTime(0.5, now + PRE_SILENCE_MS/1000 + 0.3);
+    }catch(e){
+      console.warn('Audio unavailable, continuing silently.', e);
     }
-  }, { once: true });
+    requestAnimationFrame(frameLoop);
+  }, {once:true});
 
 })();
 </script>
