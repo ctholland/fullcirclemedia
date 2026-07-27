@@ -95,7 +95,7 @@
     z-index:5;
   }
 
-  /* heavy film grain canvas */
+  /* grain canvas - boosted contrast & intensity */
   canvas#grain{
     position:absolute; inset:0; width:100%; height:100%;
     mix-blend-mode:screen;
@@ -217,6 +217,7 @@
       sctx.lineTo(x + (Math.random()-0.5)*20, h);
       sctx.stroke();
     }
+    // dust specks
     const specks = Math.floor(Math.random()*10*intensity);
     for(let i=0;i<specks;i++){
       sctx.fillStyle = `rgba(255,255,255,${0.2+Math.random()*0.4})`;
@@ -316,17 +317,17 @@
     osc.stop(time+1.7);
   }
 
-  // ---------- Animation timeline (Accelerated) ----------
+  // ---------- Animation timeline ----------
   const COUNT_START = 8;
-  const STEP_MS = 720;
+  const STEP_MS = 780;
   const TOTAL_COUNT_MS = COUNT_START * STEP_MS;
-  const PRE_SILENCE_MS = 400;
-  const POST_COUNT_PAUSE_MS = 250;
-  const SETTLE_MS = 400;
-  const TEXT_FADE_DELAY_MS = 200;  // text starts fading in almost immediately after ring disappears
-  const TEXT_FADE_MS = 1200;        // quick, smooth emergence
-  const FINAL_HOLD_MS = 2800;
-  const FINAL_FADE_MS = 1600;
+  const PRE_SILENCE_MS = 650;
+  const POST_COUNT_PAUSE_MS = 550;
+  const SETTLE_MS = 900;
+  const TEXT_FADE_DELAY_MS = 1000;
+  const TEXT_FADE_MS = 1900;
+  const FINAL_HOLD_MS = 2600;
+  const FINAL_FADE_MS = 1800;
 
   let startTime = null;
   let lastGrainDraw = 0;
@@ -405,10 +406,10 @@
 
     if(t >= textStart){
       const pRaw = Math.min(1, (t-textStart)/TEXT_FADE_MS);
-      const pOpacity = Math.pow(pRaw, 1.4);
+      const pOpacity = Math.pow(pRaw, 1.7);
       const pBlur = easeInOutCubic(pRaw);
       logoText.style.opacity = String(pOpacity);
-      logoText.style.filter = `blur(${((1-pBlur)*4.0).toFixed(2)}px)`;
+      logoText.style.filter = `blur(${((1-pBlur)*4.5).toFixed(2)}px)`;
     }
 
     if(t >= finalFadeStart){
@@ -432,6 +433,7 @@
     requestAnimationFrame(frameLoop);
   });
 
+  // Fallback user click listener to resume AudioContext if browser blocks audio autoplay
   window.addEventListener('click', () => {
     if (!audioCtx) {
       initAudio();
