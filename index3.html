@@ -112,6 +112,14 @@
     mix-blend-mode:screen;
     z-index:7;
   }
+
+  #finalFade{
+    position:absolute; inset:0;
+    background:#000;
+    opacity:0;
+    pointer-events:none;
+    z-index:12;
+  }
 </style>
 </head>
 <body>
@@ -131,6 +139,7 @@
   <div class="vignette"></div>
   <canvas id="grain"></canvas>
   <canvas id="scratches"></canvas>
+  <div id="finalFade"></div>
 </div>
 
 <script>
@@ -143,6 +152,7 @@
   const logoText = document.getElementById('logoText');
   const grainCanvas = document.getElementById('grain');
   const scratchCanvas = document.getElementById('scratches');
+  const finalFade = document.getElementById('finalFade');
   const gctx = grainCanvas.getContext('2d');
   const sctx = scratchCanvas.getContext('2d');
 
@@ -306,19 +316,22 @@
     osc.stop(time+1.7);
   }
 
-  // ---------- Timeline (Logo comes in sooner & stays permanently) ----------
+  // ---------- Animation timeline (Accelerated) ----------
   const COUNT_START = 8;
-  const STEP_MS = 680;
+  const STEP_MS = 720;
   const TOTAL_COUNT_MS = COUNT_START * STEP_MS;
-  const PRE_SILENCE_MS = 300;
-  const POST_COUNT_PAUSE_MS = 150;
-  const SETTLE_MS = 300;
-  const TEXT_FADE_DELAY_MS = 50;  // comes in almost instantly
-  const TEXT_FADE_MS = 900;        // smooth crisp reveal
+  const PRE_SILENCE_MS = 400;
+  const POST_COUNT_PAUSE_MS = 250;
+  const SETTLE_MS = 400;
+  const TEXT_FADE_DELAY_MS = 200;  // text starts fading in almost immediately after ring disappears
+  const TEXT_FADE_MS = 1200;        // quick, smooth emergence
+  const FINAL_HOLD_MS = 2800;
+  const FINAL_FADE_MS = 1600;
 
   let startTime = null;
   let lastGrainDraw = 0;
   let clicksScheduled = false;
+  let audioFadeScheduled = false;
 
   function easeInOutCubic(t){
     return t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2;
@@ -333,26 +346,28 @@
     const resolveAt = countdownEnd + POST_COUNT_PAUSE_MS;
     const settleEnd = resolveAt + SETTLE_MS;
     const textStart = settleEnd + TEXT_FADE_DELAY_MS;
+    const textEnd = textStart + TEXT_FADE_MS;
+    const finalFadeStart = textEnd + FINAL_HOLD_MS;
 
     let artifactIntensity;
     if(t < countdownEnd){
       artifactIntensity = 1.2;
     } else if(t < settleEnd){
       const p = (t-countdownEnd) / (settleEnd-countdownEnd);
-      artifactIntensity = 1.2 - easeInOutCubic(Math.min(p,1)) * 0.8;
+      artifactIntensity = 1.2 - easeInOutCubic(Math.min(p,1)) * 0.9;
     } else {
-      artifactIntensity = 0.4; // constant film noise while holding logo
+      artifactIntensity = 0.3;
     }
 
-    const weaveAmt = 1.8 * artifactIntensity;
+    const weaveAmt = 2.0 * artifactIntensity;
     const dx = (Math.random()-0.5) * weaveAmt;
     const dy = (Math.random()-0.5) * weaveAmt;
-    const flicker = 1 + (Math.random()-0.5) * 0.06 * artifactIntensity;
+    const flicker = 1 + (Math.random()-0.5) * 0.08 * artifactIntensity;
     frame.style.transform = `translate(${dx}px, ${dy}px)`;
     frame.style.filter = `brightness(${flicker})`;
 
     if(ts - lastGrainDraw > 33){
-      drawGrain(0.6 + 0.5*artifactIntensity);
+      drawGrain(0.6 + 0.6*artifactIntensity);
       updateScratches(artifactIntensity);
       lastGrainDraw = ts;
     }
@@ -388,19 +403,30 @@
       countdownWrap.style.opacity = '0';
     }
 
-    // Logo fade-in & stay permanent
     if(t >= textStart){
       const pRaw = Math.min(1, (t-textStart)/TEXT_FADE_MS);
-      const pOpacity = Math.pow(pRaw, 1.2);
+      const pOpacity = Math.pow(pRaw, 1.4);
       const pBlur = easeInOutCubic(pRaw);
       logoText.style.opacity = String(pOpacity);
-      logoText.style.filter = `blur(${((1-pBlur)*3.5).toFixed(2)}px)`;
+      logoText.style.filter = `blur(${((1-pBlur)*4.0).toFixed(2)}px)`;
+    }
+
+    if(t >= finalFadeStart){
+      const p = easeInOutCubic(Math.min(1, (t-finalFadeStart)/FINAL_FADE_MS));
+      finalFade.style.opacity = String(p);
+      if(!audioFadeScheduled && audioCtx && humGain){
+        audioFadeScheduled = true;
+        const now = audioCtx.currentTime;
+        humGain.gain.cancelScheduledValues(now);
+        humGain.gain.setValueAtTime(humGain.gain.value, now);
+        humGain.gain.linearRampToValueAtTime(0.0, now + FINAL_FADE_MS/1000);
+      }
     }
 
     requestAnimationFrame(frameLoop);
   }
 
-  // Auto-start
+  // --- Auto-start triggers ---
   window.addEventListener('DOMContentLoaded', () => {
     initAudio();
     requestAnimationFrame(frameLoop);
