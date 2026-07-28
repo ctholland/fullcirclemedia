@@ -95,7 +95,7 @@
     z-index:5;
   }
 
-  /* grain canvas - boosted contrast & intensity */
+  /* heavy film grain canvas */
   canvas#grain{
     position:absolute; inset:0; width:100%; height:100%;
     mix-blend-mode:screen;
@@ -111,14 +111,6 @@
     opacity:0.6;
     mix-blend-mode:screen;
     z-index:7;
-  }
-
-  #finalFade{
-    position:absolute; inset:0;
-    background:#000;
-    opacity:0;
-    pointer-events:none;
-    z-index:12;
   }
 </style>
 </head>
@@ -139,7 +131,6 @@
   <div class="vignette"></div>
   <canvas id="grain"></canvas>
   <canvas id="scratches"></canvas>
-  <div id="finalFade"></div>
 </div>
 
 <script>
@@ -152,7 +143,6 @@
   const logoText = document.getElementById('logoText');
   const grainCanvas = document.getElementById('grain');
   const scratchCanvas = document.getElementById('scratches');
-  const finalFade = document.getElementById('finalFade');
   const gctx = grainCanvas.getContext('2d');
   const sctx = scratchCanvas.getContext('2d');
 
@@ -217,7 +207,6 @@
       sctx.lineTo(x + (Math.random()-0.5)*20, h);
       sctx.stroke();
     }
-    // dust specks
     const specks = Math.floor(Math.random()*10*intensity);
     for(let i=0;i<specks;i++){
       sctx.fillStyle = `rgba(255,255,255,${0.2+Math.random()*0.4})`;
@@ -317,22 +306,19 @@
     osc.stop(time+1.7);
   }
 
-  // ---------- Animation timeline ----------
+  // ---------- Timeline (Logo comes in sooner & stays permanently) ----------
   const COUNT_START = 8;
-  const STEP_MS = 780;
+  const STEP_MS = 680;
   const TOTAL_COUNT_MS = COUNT_START * STEP_MS;
-  const PRE_SILENCE_MS = 650;
-  const POST_COUNT_PAUSE_MS = 550;
-  const SETTLE_MS = 900;
-  const TEXT_FADE_DELAY_MS = 1000;
-  const TEXT_FADE_MS = 1900;
-  const FINAL_HOLD_MS = 2600;
-  const FINAL_FADE_MS = 1800;
+  const PRE_SILENCE_MS = 300;
+  const POST_COUNT_PAUSE_MS = 150;
+  const SETTLE_MS = 300;
+  const TEXT_FADE_DELAY_MS = 50;  // comes in almost instantly
+  const TEXT_FADE_MS = 900;        // smooth crisp reveal
 
   let startTime = null;
   let lastGrainDraw = 0;
   let clicksScheduled = false;
-  let audioFadeScheduled = false;
 
   function easeInOutCubic(t){
     return t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2;
@@ -347,28 +333,26 @@
     const resolveAt = countdownEnd + POST_COUNT_PAUSE_MS;
     const settleEnd = resolveAt + SETTLE_MS;
     const textStart = settleEnd + TEXT_FADE_DELAY_MS;
-    const textEnd = textStart + TEXT_FADE_MS;
-    const finalFadeStart = textEnd + FINAL_HOLD_MS;
 
     let artifactIntensity;
     if(t < countdownEnd){
       artifactIntensity = 1.2;
     } else if(t < settleEnd){
       const p = (t-countdownEnd) / (settleEnd-countdownEnd);
-      artifactIntensity = 1.2 - easeInOutCubic(Math.min(p,1)) * 0.9;
+      artifactIntensity = 1.2 - easeInOutCubic(Math.min(p,1)) * 0.8;
     } else {
-      artifactIntensity = 0.3;
+      artifactIntensity = 0.4; // constant film noise while holding logo
     }
 
-    const weaveAmt = 2.0 * artifactIntensity;
+    const weaveAmt = 1.8 * artifactIntensity;
     const dx = (Math.random()-0.5) * weaveAmt;
     const dy = (Math.random()-0.5) * weaveAmt;
-    const flicker = 1 + (Math.random()-0.5) * 0.08 * artifactIntensity;
+    const flicker = 1 + (Math.random()-0.5) * 0.06 * artifactIntensity;
     frame.style.transform = `translate(${dx}px, ${dy}px)`;
     frame.style.filter = `brightness(${flicker})`;
 
     if(ts - lastGrainDraw > 33){
-      drawGrain(0.6 + 0.6*artifactIntensity);
+      drawGrain(0.6 + 0.5*artifactIntensity);
       updateScratches(artifactIntensity);
       lastGrainDraw = ts;
     }
@@ -404,36 +388,24 @@
       countdownWrap.style.opacity = '0';
     }
 
+    // Logo fade-in & stay permanent
     if(t >= textStart){
       const pRaw = Math.min(1, (t-textStart)/TEXT_FADE_MS);
-      const pOpacity = Math.pow(pRaw, 1.7);
+      const pOpacity = Math.pow(pRaw, 1.2);
       const pBlur = easeInOutCubic(pRaw);
       logoText.style.opacity = String(pOpacity);
-      logoText.style.filter = `blur(${((1-pBlur)*4.5).toFixed(2)}px)`;
-    }
-
-    if(t >= finalFadeStart){
-      const p = easeInOutCubic(Math.min(1, (t-finalFadeStart)/FINAL_FADE_MS));
-      finalFade.style.opacity = String(p);
-      if(!audioFadeScheduled && audioCtx && humGain){
-        audioFadeScheduled = true;
-        const now = audioCtx.currentTime;
-        humGain.gain.cancelScheduledValues(now);
-        humGain.gain.setValueAtTime(humGain.gain.value, now);
-        humGain.gain.linearRampToValueAtTime(0.0, now + FINAL_FADE_MS/1000);
-      }
+      logoText.style.filter = `blur(${((1-pBlur)*3.5).toFixed(2)}px)`;
     }
 
     requestAnimationFrame(frameLoop);
   }
 
-  // --- Auto-start triggers ---
+  // Auto-start
   window.addEventListener('DOMContentLoaded', () => {
     initAudio();
     requestAnimationFrame(frameLoop);
   });
 
-  // Fallback user click listener to resume AudioContext if browser blocks audio autoplay
   window.addEventListener('click', () => {
     if (!audioCtx) {
       initAudio();
