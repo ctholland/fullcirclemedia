@@ -322,6 +322,18 @@
     osc.stop(time+1.7);
   }
 
+  // Cinematic fade-out of the projector hum, like a reel winding down.
+  function fadeOutHum(holdSeconds, fadeSeconds){
+    if (!audioCtx || !humGain) return;
+    const now = audioCtx.currentTime;
+    const fadeStart = now + holdSeconds;
+    // Freeze the flutter-modulated value right before the fade begins,
+    // then ease it down to silence over fadeSeconds.
+    humGain.gain.setValueAtTime(humGain.gain.value, fadeStart);
+    humGain.gain.exponentialRampToValueAtTime(0.0001, fadeStart + fadeSeconds);
+    humGain.gain.linearRampToValueAtTime(0.0, fadeStart + fadeSeconds + 0.05);
+  }
+
   // ---------- Timeline (Logo comes in sooner & stays permanently) ----------
   const COUNT_START = 8;
   const STEP_MS = 680;
@@ -331,10 +343,13 @@
   const SETTLE_MS = 300;
   const TEXT_FADE_DELAY_MS = 50;  // comes in almost instantly
   const TEXT_FADE_MS = 900;        // smooth crisp reveal
+  const AUDIO_HOLD_MS = 900;       // how long the hum stays after the logo settles
+  const AUDIO_FADE_MS = 2200;      // length of the cinematic fade-out itself
 
   let startTime = null;
   let lastGrainDraw = 0;
   let clicksScheduled = false;
+  let humFadeScheduled = false;
 
   function easeInOutCubic(t){
     return t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2;
@@ -349,6 +364,8 @@
     const resolveAt = countdownEnd + POST_COUNT_PAUSE_MS;
     const settleEnd = resolveAt + SETTLE_MS;
     const textStart = settleEnd + TEXT_FADE_DELAY_MS;
+    const textEnd = textStart + TEXT_FADE_MS;
+    const humFadeAt = textEnd + AUDIO_HOLD_MS;
 
     let artifactIntensity;
     if(t < countdownEnd){
@@ -411,6 +428,13 @@
       const pBlur = easeInOutCubic(pRaw);
       logoText.style.opacity = String(pOpacity);
       logoText.style.filter = `blur(${((1-pBlur)*3.5).toFixed(2)}px)`;
+    }
+
+    // Once the logo has settled and held for a beat, let the projector hum
+    // wind down and fade to silence rather than sitting there indefinitely.
+    if(!humFadeScheduled && t >= humFadeAt && audioCtx){
+      humFadeScheduled = true;
+      fadeOutHum(0, AUDIO_FADE_MS/1000);
     }
 
     requestAnimationFrame(frameLoop);
